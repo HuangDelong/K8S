@@ -1,82 +1,58 @@
-#1.准备
-##1.1系统配置
-**安装之前，需要先做如下准备。三台CentOS7 主机如下：**
+1.准备
+1.1系统配置
+安装之前，需要先做如下准备。三台CentOS7 主机如下：
 
-```
 cat /etc/hosts
 192.168.199.201 m1.localdomain m1
 192.168.199.202 m2.localdomain m2
 192.168.199.203 m3.localdomain m3
-```
 
+关系各节点防火墙：
 
-**关系各节点防火墙：**
-
-```
 systemctl stop firewalld
 systemctl disable firewalld
-```
 
-
-**创建/etc/sysctl.d/k8s.conf文件，添加如下内容：**
-
-``` 
+创建/etc/sysctl.d/k8s.conf文件，添加如下内容：
+ 
 net.bridge.bridge-nf-call-ip6tables = 1
 net.bridge.bridge-nf-call-iptables = 1
-```
 
+执行sysctl -p /etc/sysctl.d/k8s.conf使修改生效。
 
-**执行sysctl -p /etc/sysctl.d/k8s.conf使修改生效。**
+禁用SELINUX：
 
-**禁用SELINUX：**
-
-``` lsl
 setenforce 0
-```
 
-
-``` makefile
 vi /etc/selinux/config
 SELINUX=disabled
-```
 
+关闭系统swap：
 
-**关闭系统swap：**
-
-``` bash
 swapoff -a
-```
 
-*修改 /etc/fstab 文件，注释掉 SWAP 的自动挂载，使用free -m 确认swap已经关闭*
-##1.2安装Docker
+修改 /etc/fstab 文件，注释掉 SWAP 的自动挂载，使用free -m 确认swap已经关闭
 
-``` vim
+1.2安装Docker
+
 yum install -y yum-utils device-mapper-persistent-data lvm2
 yum-config-manager \
     --add-repo \
     https://download.docker.com/linux/centos/docker-ce.repo
 yum install docker-ce
-```
 
-``` dts
 cat << EOF > /etc/docker/daemon.json
 {
   "exec-opts": ["native.cgroupdriver=systemd"]
 }
 EOF
-```
 
-**启动Docker：**
+启动Docker：
 
-``` maxima
 systemctl daemon-reload
 systemctl restart docker
-```
 
+2.安装kubeadm和kubelet
 
-#2.安装kubeadm和kubelet
-
-``` makefile
 cat <<EOF > /etc/yum.repos.d/kubernetes.repo
 [kubernetes]
 name=Kubernetes
@@ -86,33 +62,23 @@ gpgcheck=1
 repo_gpgcheck=1
 gpgkey=https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
 EOF
-```
 
-``` sql
 yum install -y kubelet kubeadm kubectl
 systemctl enable kubelet && systemctl start kubelet
-```
 
+3.配置etcd集群
+创建etcd CA证书
+安装cfssl 、 cfssljson
 
-#3.配置etcd集群
-**创建etcd CA证书
-安装cfssl 、 cfssljson**
-
-``` groovy
 curl -o /usr/local/bin/cfssl https://pkg.cfssl.org/R1.2/cfssl_linux-amd64
 curl -o /usr/local/bin/cfssljson https://pkg.cfssl.org/R1.2/cfssljson_linux-amd64
 chmod +x /usr/local/bin/cfssl*
-```
 
+在m1、m2、m3上运行如下指令：
 
-**在m1、m2、m3上运行如下指令：**
-
-``` jboss-cli
 mkdir -p /etc/kubernetes/etcd
 cd /etc/kubernetes/etcd
-```
 
-``` xquery
 cat >ca-config.json <<EOL
 {
      "signing": {
@@ -150,12 +116,7 @@ cat >ca-config.json <<EOL
      }
 }
 EOL
-```
 
-
- 
-
-``` stata
 cat >ca-csr.json <<EOL
 {
      "CN": "etcd",
@@ -165,19 +126,13 @@ cat >ca-csr.json <<EOL
      }
 }
 EOL
-```
 
+生成CA证书
 
-**生成CA证书**
-
-``` stata
 cfssl gencert -initca ca-csr.json | cfssljson -bare ca -
-```
 
-
-**创建etcd客户端证书**
-
-``` xquery
+创建etcd客户端证书
+ 
 cat >client.json <<EOL
 {
      "CN": "client",
@@ -187,59 +142,38 @@ cat >client.json <<EOL
      }
 }
 EOL
-```
-
-
-``` vim
+ 
 cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=client client.json | cfssljson -bare client
-```
 
+在m1、m2、m3上执行如下指令：
 
-**在m1、m2、m3上执行如下指令：**
-
-``` javascript
 export PEER_NAME=$(hostname)
 export PRIVATE_IP=$(ip addr show eth0 | grep -Po 'inet \K[\d.]+')
-```
 
+将m1上/etc/kubernetes/etcd/ 目录下的ca.pem ca-key.pem client.pem client-key.pem ca-config.json 拷贝至m2、m3 /etc/kubernetes/etcd/ 下
 
-**将m1上/etc/kubernetes/etcd/ 目录下的ca.pem ca-key.pem client.pem client-key.pem ca-config.json 拷贝至m2、m3 /etc/kubernetes/etcd/ 下**
+在m1、m2、m3上执行如下指令：
 
-**在m1、m2、m3上执行如下指令：**
-
-``` stylus
 cfssl print-defaults csr > config.json
 sed -i '0,/CN/{s/example\.net/'"$PEER_NAME"'/}' config.json
 sed -i 's/www\.example\.net/'"$PRIVATE_IP"'/' config.json
 sed -i 's/example\.net/'"$PUBLIC_IP"'/' config.json
-```
 
-
-``` vim
 cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=server config.json | cfssljson -bare server
 cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=peer config.json | cfssljson -bare peer
-```
 
+安装etcd二进制文件
 
-**安装etcd二进制文件**
-
-``` awk
 export ETCD_VERSION=v3.1.10
 curl -sSL https://github.com/coreos/etcd/releases/download/${ETCD_VERSION}/etcd-${ETCD_VERSION}-linux-amd64.tar.gz | tar -xzv --strip-components=1 -C /usr/local/bin/
 rm -rf etcd-$ETCD_VERSION-linux-amd64*
-```
 
+在m1、m2、m3上执行如下指令：
 
-**在m1、m2、m3上执行如下指令：**
-
-``` jboss-cli
 touch /etc/etcd.env
 echo "PEER_NAME=$PEER_NAME" >> /etc/etcd.env
 echo "PRIVATE_IP=$PRIVATE_IP" >> /etc/etcd.env
-```
 
-
-``` haml
 cat >/etc/systemd/system/etcd.service <<EOL
 [Unit]
 Description=etcd
@@ -276,21 +210,15 @@ ExecStart=/usr/local/bin/etcd --name ${PEER_NAME} \
 [Install]
 WantedBy=multi-user.target
 EOL
-```
 
+在m1、m2、m3上启动etcd服务:
 
-**在m1、m2、m3上启动etcd服务：**
-
-``` ebnf
 systemctl daemon-reload
 systemctl start etcd
-```
 
+4.使用kubeadm init初始化集群
+在m1上执行如下指令：
 
-#4.使用kubeadm init初始化集群
-**在m1上执行如下指令：**
-
-``` x86asm
 cat >config.yaml <<EOL
 apiVersion: kubeadm.k8s.io/v1alpha1
 kind: MasterConfiguration
@@ -315,47 +243,32 @@ apiServerExtraArgs:
   endpoint-reconciler-type=lease
 kubernetesVersion: v1.9.2
 EOL
-```
 
+使用kubeadm init初始化k8s
 
-**使用kubeadm init初始化k8s**
-
-``` verilog
 kubeadm init --config=config.yaml
-```
 
+初始化成功后，将/etc/kubernetes/pki目录下的所有文件拷贝至m2、m3 /etc/kubernetes/pki目录下
+将/etc/kubernetes/config.yaml文件拷贝至m2、m3 /etc/kubernetes/目录下
 
-*初始化成功后，将/etc/kubernetes/pki目录下的所有文件拷贝至m2、m3 /etc/kubernetes/pki目录下
-将/etc/kubernetes/config.yaml文件拷贝至m2、m3 /etc/kubernetes/目录下*
+在m2、m3上执行如下指令：
 
-**在m2、m3上执行如下指令：**
-
-``` verilog
 kubeadm init --config=config.yaml
-```
 
-**在m1、m2、m3上执行如下指令：**
+在m1、m2、m3上执行如下指令：
 
-``` stylus
 mkdir -p $HOME/.kube
 sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
 sudo chown $(id -u):$(id -g) $HOME/.kube/config
-```
 
+5.安装Pod Network
 
-#5.安装Pod Network
-
-``` elixir
 mkdir -p ~/k8s/
 wget  https://raw.githubusercontent.com/coreos/flannel/v0.9.1/Documentation/kube-flannel.yml
 kubectl apply -f kube-flannel.yml
-```
 
+如果Node有多个网卡的话，需要在kube-flannel.yml中使用–iface参数指定集群主机内网网卡的名称，否则可能会出现dns无法解析。需要将kube-flannel.yml下载到本地，flanneld启动参数加上–iface=<iface-name>
 
-
-*如果Node有多个网卡的话，需要在kube-flannel.yml中使用–iface参数指定集群主机内网网卡的名称，否则可能会出现dns无法解析。需要将kube-flannel.yml下载到本地，flanneld启动参数加上–iface=<iface-name>*
-
-``` clean
 ......
 apiVersion: extensions/v1beta1
 kind: DaemonSet
@@ -367,34 +280,23 @@ containers:
         image: quay.io/coreos/flannel:v0.9.0-amd64
         command: [ "/opt/bin/flanneld", "--ip-masq", "--kube-subnet-mgr", "--iface=eth0" ]
 ......
-```
 
-*使用kubectl get pod –all-namespaces -o wide确保所有的Pod都处于Running状态。*
+使用kubectl get pod –all-namespaces -o wide确保所有的Pod都处于Running状态。
 
-#6.master node参与工作负载
+6.master node参与工作负载
 
-``` crmsh
 kubectl taint nodes -all node-role.kubernetes.io/master-
-```
 
+7.dashboard插件部署
 
-#7.dashboard插件部署
-
-``` elixir
 mkdir -p ~/k8s/
 wget https://raw.githubusercontent.com/kubernetes/dashboard/master/src/deploy/recommended/kubernetes-dashboard.yaml
 kubectl apply -f kubernetes-dashboard.yaml
-```
 
+创建服务账号
 
-**创建服务账号**
-
-``` matlab
 cat ClusterRoleBinding.yaml
-```
 
-
-``` yaml
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -415,24 +317,15 @@ subjects:
   name: admin-user
   namespace: kube-system
 ---
-```
 
-
-``` bash
 kubectl create -f ClusterRoleBinding.yaml
-```
 
+获取Token
 
-**获取Token**
-
-``` sql
 kubectl -n kube-system describe secret $(kubectl -n kube-system get secret | grep admin-user | awk '{print $1}')
-```
 
+8.heapster插件部署
 
-#8.heapster插件部署
-
-``` elixir
 mkdir -p ~/k8s/heapster
 cd ~/k8s/heapster
 wget https://raw.githubusercontent.com/kubernetes/heapster/master/deploy/kube-config/influxdb/grafana.yaml
@@ -441,4 +334,3 @@ wget https://raw.githubusercontent.com/kubernetes/heapster/master/deploy/kube-co
 wget https://raw.githubusercontent.com/kubernetes/heapster/master/deploy/kube-config/influxdb/influxdb.yaml
 
 kubectl create -f ./
-```
