@@ -1,1 +1,10 @@
-# K8S
+#1.准备
+##1.1系统配置
+**安装之前，需要先做如下准备。三台CentOS7 主机如下：**
+
+``` `lsl`
+cat /etc/hosts
+192.168.199.201 m1.localdomain m1
+192.168.199.202 m2.localdomain m2
+192.168.199.203 m3.localdomain m3
+```
