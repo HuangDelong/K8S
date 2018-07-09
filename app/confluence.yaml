@@ -4,13 +4,17 @@ metadata:
   name: confluence
   namespace: default
 ---
-apiVersion: extensions/v1beta1
-kind: Deployment
+apiVersion: apps/v1
+kind: StatefulSet
 metadata:
   name: confluence
   namespace: default
 spec:
+  serviceName: "confluence"
   replicas: 1
+  selector:
+    matchLabels:
+      k8s-app: confluence
   template:
     metadata:
       labels:
@@ -55,4 +59,3 @@ spec:
     requests:
       storage: 10Gi
   storageClassName: rbd
-
